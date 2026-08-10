@@ -1,0 +1,51 @@
+# PPO Configuration for DDA Director Agent
+# ==========================================
+# CPU-friendly settings with small MLP policy
+
+algorithm: PPO
+policy: MlpPolicy
+
+# Network architecture (small MLP for CPU training)
+policy_kwargs:
+  net_arch: [64, 64]
+  activation_fn: ReLU
+
+# Training hyperparameters
+total_timesteps: 100000
+learning_rate: 0.0003
+n_steps: 256        # Steps per rollout (per env)
+batch_size: 64       # Minibatch size for updates
+n_epochs: 10         # Epochs per update
+gamma: 0.99          # Discount factor
+gae_lambda: 0.95     # GAE lambda
+clip_range: 0.2      # PPO clip range
+ent_coef: 0.01       # Entropy bonus (encourages exploration)
+vf_coef: 0.5         # Value function loss coefficient
+max_grad_norm: 0.5   # Gradient clipping
+
+# Environment settings
+session_length: 10   # Levels per episode
+t_min: 50            # Target window lower bound (steps)
+t_max: 200           # Target window upper bound (steps)
+timeout_steps: 500   # Max steps per level before timeout
+
+# Difficulty bounds
+grid_size_min: 8
+grid_size_max: 20
+max_keys: 3
+max_enemies: 5
+max_hints: 3
+
+# Reproducibility
+seed: 42
+
+# Logging
+log_interval: 10           # Log every N updates
+save_interval: 10000       # Save checkpoint every N timesteps
+log_dir: results/logs/ppo
+model_dir: results/models/ppo
+
+# W&B (set to false to use CSV fallback)
+use_wandb: false
+wandb_project: dda_puzzle_rl
+wandb_entity: null
