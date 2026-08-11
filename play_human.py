@@ -19,26 +19,26 @@ from envs.dda_env import DDAAction, DDAEnv
 from agents.eval_agent import HeuristicDDA, RLAgentDDA
 
 # Colors (RGB)
-COLOR_BACKGROUND = (30, 30, 40)
-COLOR_GRID_LINE = (50, 50, 65)
-COLOR_WALL = (60, 64, 80)
-COLOR_EMPTY = (20, 22, 30)
-COLOR_PLAYER = (50, 205, 50)     # Lime Green
-COLOR_EXIT = (255, 215, 0)       # Gold
-COLOR_KEY_R = (255, 75, 75)      # Red Key
-COLOR_KEY_G = (75, 255, 75)      # Green Key
-COLOR_KEY_B = (75, 150, 255)     # Blue Key
-COLOR_DOOR_R = (180, 40, 40)     # Red Door
-COLOR_DOOR_G = (40, 180, 40)     # Green Door
-COLOR_DOOR_B = (40, 90, 180)     # Blue Door
-COLOR_ENEMY = (235, 50, 90)      # Crimson Enemy
-COLOR_HINT = (180, 100, 255)     # Purple Hint
-COLOR_TEXT = (240, 240, 240)
-COLOR_PANEL = (40, 44, 56)
+COLOR_BACKGROUND = (24, 26, 32)
+COLOR_GRID_LINE = (45, 48, 60)
+COLOR_WALL = (52, 56, 72)
+COLOR_EMPTY = (15, 17, 23)
+COLOR_PLAYER = (46, 204, 113)     # Bright Emerald Green
+COLOR_EXIT = (241, 196, 15)       # Gold
+COLOR_KEY_R = (231, 76, 60)       # Crimson Red Key
+COLOR_KEY_G = (46, 204, 113)      # Emerald Green Key
+COLOR_KEY_B = (52, 152, 219)      # Sapphire Blue Key
+COLOR_DOOR_R = (150, 40, 40)      # Crimson Red Door
+COLOR_DOOR_G = (40, 150, 40)      # Emerald Green Door
+COLOR_DOOR_B = (40, 90, 160)      # Sapphire Blue Door
+COLOR_ENEMY = (235, 45, 85)       # Coral Red Enemy
+COLOR_HINT = (155, 89, 182)      # Amethyst Purple Hint
+COLOR_TEXT = (236, 240, 241)
+COLOR_PANEL = (34, 38, 50)
 
 
 class HumanGameWindow:
-    def __init__(self, mode='heuristic', ppo_model_path=None, cell_size=40):
+    def __init__(self, mode='heuristic', ppo_model_path=None, cell_size=42):
         pygame.init()
         pygame.display.set_caption("2D Key-Door Puzzle — DDA Interactive Mode")
 
@@ -63,24 +63,18 @@ class HumanGameWindow:
 
         self.obs, self.info = self.env.reset(seed=42)
         self.game = self.env.game
-        
-        # Override bot step with human interaction
-        self.level_step_count = 0
-        self.level_start_ticks = pygame.time.get_ticks()
-        self.current_action = None
 
     def render(self, screen, font):
         grid = self.game.grid
         grid_size = self.game.config.grid_size
 
         grid_px = grid_size * self.cell_size
-        panel_width = 250
-        width = grid_px + panel_width
-        height = max(grid_px, 500)
+        panel_width = 240
+        height = max(grid_px, 480)
 
         screen.fill(COLOR_BACKGROUND)
 
-        # 1. Draw Grid Tiles
+        # 1. Draw Grid Tiles (Strict 0 to grid_size-1 bounds)
         for r in range(grid_size):
             for c in range(grid_size):
                 tile = grid[r, c]
@@ -113,7 +107,7 @@ class HumanGameWindow:
                 pygame.draw.rect(screen, color, rect)
                 pygame.draw.rect(screen, COLOR_GRID_LINE, rect, 1)
 
-                # Draw Tile Text Label for Keys/Doors/Exit
+                # Label text
                 label = ""
                 if tile == TileType.PLAYER: label = "P"
                 elif tile == TileType.EXIT: label = "E"
@@ -127,7 +121,8 @@ class HumanGameWindow:
                 elif tile == TileType.HINT: label = "?"
 
                 if label:
-                    txt_surface = font.render(label, True, (0, 0, 0) if tile in [TileType.PLAYER, TileType.EXIT, TileType.KEY_R, TileType.KEY_G, TileType.KEY_B] else COLOR_TEXT)
+                    text_color = (0, 0, 0) if tile in [TileType.PLAYER, TileType.EXIT, TileType.KEY_R, TileType.KEY_G, TileType.KEY_B] else COLOR_TEXT
+                    txt_surface = font.render(label, True, text_color)
                     txt_rect = txt_surface.get_rect(center=rect.center)
                     screen.blit(txt_surface, txt_rect)
 
@@ -135,12 +130,11 @@ class HumanGameWindow:
         panel_rect = pygame.Rect(grid_px, 0, panel_width, height)
         pygame.draw.rect(screen, COLOR_PANEL, panel_rect)
 
-        # Panel Dashboard Info
         lines = [
             f"Mode: {self.mode.upper()}",
             f"Level: {self.env.levels_attempted + 1}/{self.env.session_length}",
             "-------------------",
-            f"Grid Size: {self.game.config.grid_size}x{self.game.config.grid_size}",
+            f"Grid Size: {grid_size}x{grid_size}",
             f"Keys: {self.game.config.num_keys}",
             f"Enemies: {self.game.config.num_enemies}",
             f"Hints: {self.game.config.num_hints}",
@@ -165,10 +159,10 @@ class HumanGameWindow:
     def run(self):
         clock = pygame.time.Clock()
 
-        # Dynamic Window Sizing
+        # Dynamic Window Sizing precisely matched to grid
         grid_px = self.game.config.grid_size * self.cell_size
-        screen = pygame.display.set_mode((grid_px + 250, max(grid_px, 500)))
-        font = pygame.font.SysFont("Consolas", 16, bold=True)
+        screen = pygame.display.set_mode((grid_px + 240, max(grid_px, 480)))
+        font = pygame.font.SysFont("Consolas", 15, bold=True)
 
         running = True
         while running:
@@ -201,7 +195,6 @@ class HumanGameWindow:
                     solved = self.game.won
                     solve_time = self.game.step_count
                     
-                    # Update heuristic or observe
                     if isinstance(self.director, HeuristicDDA):
                         self.director.observe_result(solved, solve_time)
 
@@ -217,9 +210,9 @@ class HumanGameWindow:
                         self.obs, self.info = self.env.reset()
                         self.game = self.env.game
 
-                    # Adjust window size if grid size changed
+                    # Adjust window size dynamically to fit new grid size exactly
                     grid_px = self.game.config.grid_size * self.cell_size
-                    screen = pygame.display.set_mode((grid_px + 250, max(grid_px, 500)))
+                    screen = pygame.display.set_mode((grid_px + 240, max(grid_px, 480)))
 
             self.render(screen, font)
 

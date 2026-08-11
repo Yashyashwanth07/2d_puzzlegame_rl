@@ -175,31 +175,48 @@ class PuzzleGame:
                 self.grid[r, c] = TileType.EMPTY
 
     def _place_key_door_pairs(self) -> None:
-        """Places keys and matching doors on paths to exit."""
+        """Places keys and matching doors ensuring doors act as required bottlenecks."""
         keys_to_place = [TileType.KEY_R, TileType.KEY_G, TileType.KEY_B][:self.config.num_keys]
         doors_to_place = [TileType.DOOR_R, TileType.DOOR_G, TileType.DOOR_B][:self.config.num_keys]
         
         for k, d in zip(keys_to_place, doors_to_place):
-            empty_cells = self._find_empty_cells()
-            reachable = self._get_reachable(self.player_pos, ignore_doors=False)
-            reachable_empty = [c for c in empty_cells if c in reachable]
-            
-            if not reachable_empty:
-                continue
-                
-            key_pos = reachable_empty[self.rng.choice(len(reachable_empty))]
-            self.grid[key_pos] = k
-            
+            # Find a path to the exit ignoring doors
             path = self._get_path(self.player_pos, self.exit_pos, ignore_doors=True)
-            if path:
-                valid_door_spots = [p for p in path if self.grid[p] == TileType.EMPTY]
-                if valid_door_spots:
-                    door_pos = valid_door_spots[len(valid_door_spots) // 2]
-                    self.grid[door_pos] = d
-                else:
-                    self.grid[key_pos] = TileType.EMPTY
+            if not path or len(path) < 4:
+                continue
+
+            # Pick door position along the middle of the path
+            valid_door_spots = [p for p in path[1:-1] if self.grid[p] == TileType.EMPTY]
+            if not valid_door_spots:
+                continue
+
+            door_pos = valid_door_spots[self.rng.choice(len(valid_door_spots))]
+            self.grid[door_pos] = d
+
+            # Now find a key position that is reachable from start WITHOUT passing through this door
+            reachable_before_door = self._get_reachable(self.player_pos, ignore_doors=False)
+            reachable_empty = [c for c in self._find_empty_cells() if c in reachable_before_door and c != door_pos]
+
+            if reachable_empty:
+                key_pos = reachable_empty[self.rng.choice(len(reachable_empty))]
+                self.grid[key_pos] = k
             else:
-                self.grid[key_pos] = TileType.EMPTY
+                # Rollback door if no key spot
+                self.grid[door_pos] = TileType.EMPTY
+
+            # Check if exit is unreachable without key (confirming door is a true bottleneck)
+            # If exit is still reachable without key, we can add wall framing or try another spot
+            if self.exit_pos in self._get_reachable(self.player_pos, ignore_doors=False):
+                # Lock alternative paths by placing extra wall segments around door if needed
+                r, c = door_pos
+                for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                    nr, nc = r + dr, c + dc
+                    if 0 <= nr < self.config.grid_size and 0 <= nc < self.config.grid_size:
+                        if self.grid[nr, nc] == TileType.EMPTY and (nr, nc) != self.player_pos and (nr, nc) != self.exit_pos:
+                            self.grid[nr, nc] = TileType.WALL
+                            # Re-verify if path still exists with key
+                            if not self._get_path(self.player_pos, self.exit_pos, ignore_doors=True):
+                                self.grid[nr, nc] = TileType.EMPTY  # revert if broke maze
 
     def _get_path(self, start: Tuple[int, int], end: Tuple[int, int], ignore_doors: bool) -> List[Tuple[int, int]]:
         """BFS to get a path from start to end."""
