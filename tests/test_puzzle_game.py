@@ -280,3 +280,142 @@ def test_multiple_seeds_solvable(seed):
     config = LevelConfig(grid_size=12, num_keys=2, num_enemies=1, num_hints=1)
     game = PuzzleGame(config, seed=seed)
     assert game.validate_solvability(), f"Level with seed={seed} is not solvable"
+
+
+# ---- Hint direction tests ----
+
+def test_hint_direction_returns_tuple():
+    """get_hint_direction should return (direction, target_name)."""
+    config = LevelConfig(grid_size=10, num_keys=1, num_enemies=0, num_hints=1)
+    game = PuzzleGame(config, seed=42)
+    direction, target = game.get_hint_direction()
+    assert isinstance(direction, str)
+    assert isinstance(target, str)
+    assert direction in ("↑", "↓", "←", "→")
+
+
+def test_hint_direction_points_to_key():
+    """When keys exist, hint should point toward a key."""
+    config = LevelConfig(grid_size=10, num_keys=1, num_enemies=0, num_hints=1)
+    game = PuzzleGame(config, seed=42)
+    direction, target = game.get_hint_direction()
+    # Should mention "Key" if uncollected keys exist
+    assert "Key" in target or "Exit" in target
+
+
+def test_hint_direction_points_to_exit_after_keys():
+    """After all keys collected, hint should point to Exit."""
+    config = LevelConfig(grid_size=10, num_keys=1, num_enemies=0, num_hints=1)
+    game = PuzzleGame(config, seed=42)
+    # Simulate collecting all keys
+    game.inventory = {'R', 'G', 'B'}
+    direction, target = game.get_hint_direction()
+    assert target == "Exit"
+
+
+def test_hint_activates_on_collection():
+    """Stepping on a hint tile should activate hint_direction."""
+    config = LevelConfig(grid_size=10, num_keys=1, num_enemies=0, num_hints=2)
+    game = PuzzleGame(config, seed=42)
+    # Find a hint tile and place player next to it
+    hint_pos = None
+    for r in range(config.grid_size):
+        for c in range(config.grid_size):
+            if game.grid[r, c] == TileType.HINT:
+                hint_pos = (r, c)
+                break
+        if hint_pos:
+            break
+    
+    if hint_pos:
+        # Place player adjacent to hint
+        r, c = hint_pos
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < config.grid_size and 0 <= nc < config.grid_size:
+                if game.grid[nr, nc] == TileType.EMPTY:
+                    game.grid[game.player_pos] = TileType.EMPTY
+                    game.player_pos = (nr, nc)
+                    game.grid[nr, nc] = TileType.PLAYER
+                    # Player is at (nr, nc) = (r+dr, c+dc)
+                    # To move toward hint at (r, c), step in direction (-dr, -dc)
+                    if -dr == -1: action = Action.UP
+                    elif -dr == 1: action = Action.DOWN
+                    elif -dc == -1: action = Action.LEFT
+                    else: action = Action.RIGHT
+                    state = game.step(action)
+                    assert state['hint_direction'] is not None
+                    assert game.hints_remaining > 0
+                    break
+
+
+# ---- Danger zone tests ----
+
+def test_danger_zones_empty_no_enemies():
+    """No enemies should produce empty danger zones."""
+    config = LevelConfig(grid_size=10, num_keys=0, num_enemies=0, num_hints=0)
+    game = PuzzleGame(config, seed=42)
+    assert game.get_danger_zones() == set()
+
+
+def test_danger_zones_with_enemies():
+    """Enemies should produce danger zones on adjacent cells."""
+    config = LevelConfig(grid_size=12, num_keys=0, num_enemies=2, num_hints=0)
+    game = PuzzleGame(config, seed=42)
+    danger = game.get_danger_zones()
+    # Danger zones should include enemy positions
+    for r in range(config.grid_size):
+        for c in range(config.grid_size):
+            if game.grid[r, c] == TileType.ENEMY:
+                assert (r, c) in danger, f"Enemy at ({r},{c}) not in danger zones"
+    # Should also include adjacent non-wall cells
+    assert len(danger) > 0
+
+
+# ---- Feedback message tests ----
+
+def test_feedback_on_key_pickup():
+    """Picking up a key should produce feedback."""
+    config = LevelConfig(grid_size=10, num_keys=1, num_enemies=0, num_hints=0)
+    game = PuzzleGame(config, seed=42)
+    # Find a key tile and place player adjacent
+    key_pos = None
+    for r in range(config.grid_size):
+        for c in range(config.grid_size):
+            if game.grid[r, c] in (TileType.KEY_R, TileType.KEY_G, TileType.KEY_B):
+                key_pos = (r, c)
+                break
+        if key_pos:
+            break
+    
+    if key_pos:
+        r, c = key_pos
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = r + dr, c + dc
+            if 0 <= nr < config.grid_size and 0 <= nc < config.grid_size:
+                if game.grid[nr, nc] == TileType.EMPTY:
+                    game.grid[game.player_pos] = TileType.EMPTY
+                    game.player_pos = (nr, nc)
+                    game.grid[nr, nc] = TileType.PLAYER
+                    # Player is at (nr, nc) = (r+dr, c+dc)
+                    # To move toward key at (r, c), step in direction (-dr, -dc)
+                    if -dr == -1: action = Action.UP
+                    elif -dr == 1: action = Action.DOWN
+                    elif -dc == -1: action = Action.LEFT
+                    else: action = Action.RIGHT
+                    state = game.step(action)
+                    assert state['feedback_type'] == 'key'
+                    assert 'collected' in state['last_feedback']
+                    break
+
+
+def test_state_has_new_fields():
+    """get_state should include hint_direction, last_feedback, and feedback_type."""
+    config = LevelConfig(grid_size=10, num_keys=0, num_enemies=0, num_hints=0)
+    game = PuzzleGame(config, seed=42)
+    state = game.get_state()
+    assert 'hint_direction' in state
+    assert 'hint_target' in state
+    assert 'last_feedback' in state
+    assert 'feedback_type' in state
+

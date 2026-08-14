@@ -75,6 +75,15 @@ class PuzzleGame:
         self.hints_collected = 0
         self.keys_total = self.config.num_keys
         
+        # Hint system: stores the direction arrow toward the nearest objective
+        self.hint_direction: Optional[str] = None
+        self.hint_target: Optional[str] = None  # 'KEY_R', 'EXIT', etc.
+        self.hints_remaining = 0  # how many steps the hint arrow stays visible
+        
+        # Feedback system: stores messages for the UI to display
+        self.last_feedback: Optional[str] = None
+        self.feedback_type: Optional[str] = None  # 'key', 'door_locked', 'hint', 'enemy', 'exit', 'timeout'
+        
         self.generate_level()
 
     def generate_level(self) -> None:
@@ -308,6 +317,17 @@ class PuzzleGame:
         """Executes one step in the game environment."""
         if self.done:
             return self.get_state()
+        
+        # Clear feedback from previous step
+        self.last_feedback = None
+        self.feedback_type = None
+        
+        # Decrement hint visibility timer
+        if self.hints_remaining > 0:
+            self.hints_remaining -= 1
+            if self.hints_remaining == 0:
+                self.hint_direction = None
+                self.hint_target = None
             
         r, c = self.player_pos
         dr, dc = 0, 0
@@ -325,24 +345,43 @@ class PuzzleGame:
             if target_tile == TileType.EMPTY:
                 can_move = True
             elif target_tile in KEY_COLORS:
-                self.inventory.add(KEY_COLORS[target_tile])
+                color = KEY_COLORS[target_tile]
+                self.inventory.add(color)
                 can_move = True
+                self.last_feedback = f"Key {color} collected!"
+                self.feedback_type = 'key'
             elif target_tile in DOOR_TO_KEY:
                 req_key = KEY_COLORS[DOOR_TO_KEY[target_tile]]
                 if req_key in self.inventory:
                     can_move = True
+                    self.last_feedback = f"Door {req_key} unlocked!"
+                    self.feedback_type = 'door_unlocked'
+                else:
+                    self.last_feedback = f"Locked! Need Key {req_key}"
+                    self.feedback_type = 'door_locked'
             elif target_tile == TileType.EXIT:
                 can_move = True
                 self.won = True
                 self.done = True
+                self.last_feedback = "Level Complete!"
+                self.feedback_type = 'exit'
             elif target_tile == TileType.ENEMY:
                 can_move = True
                 self.deaths += 1
                 self.won = False
                 self.done = True
+                self.last_feedback = "Killed by enemy!"
+                self.feedback_type = 'enemy'
             elif target_tile == TileType.HINT:
                 self.hints_collected += 1
                 can_move = True
+                # Activate hint: compute direction to nearest objective
+                direction, target = self.get_hint_direction()
+                self.hint_direction = direction
+                self.hint_target = target
+                self.hints_remaining = 15  # hint arrow visible for 15 steps
+                self.last_feedback = f"Hint: Go {direction} toward {target}"
+                self.feedback_type = 'hint'
                 
             if can_move:
                 self.grid[r, c] = TileType.EMPTY
@@ -356,6 +395,8 @@ class PuzzleGame:
         if self.step_count >= self.max_steps and not self.done:
             self.done = True
             self.won = False
+            self.last_feedback = "Time's up!"
+            self.feedback_type = 'timeout'
             
         return self.get_state()
 
@@ -374,8 +415,61 @@ class PuzzleGame:
             'hints_collected': self.hints_collected,
             'keys_total': self.keys_total,
             'keys_collected': len(self.inventory),
-            'optimal_steps': self.compute_optimal_path_length()
+            'optimal_steps': self.compute_optimal_path_length(),
+            'hint_direction': self.hint_direction,
+            'hint_target': self.hint_target,
+            'last_feedback': self.last_feedback,
+            'feedback_type': self.feedback_type,
         }
+
+    def get_hint_direction(self) -> Tuple[str, str]:
+        """Computes BFS direction from player to the nearest uncollected key or exit.
+        Returns (direction_arrow, target_name)."""
+        # Determine the objective: nearest uncollected key, or exit if all keys collected
+        objectives = []
+        for r in range(self.config.grid_size):
+            for c in range(self.config.grid_size):
+                tile = self.grid[r, c]
+                if tile in KEY_COLORS and KEY_COLORS[tile] not in self.inventory:
+                    objectives.append(((r, c), f"Key {KEY_COLORS[tile]}"))
+        
+        if not objectives:
+            objectives = [(self.exit_pos, "Exit")]
+        
+        # BFS from player to nearest objective
+        best_dir = "↑"
+        best_target = "Exit"
+        best_dist = float('inf')
+        
+        for target_pos, target_name in objectives:
+            path = self._get_path(self.player_pos, target_pos, ignore_doors=True)
+            if path and len(path) > 1 and len(path) < best_dist:
+                best_dist = len(path)
+                best_target = target_name
+                # First step direction
+                next_pos = path[1]
+                dr = next_pos[0] - self.player_pos[0]
+                dc = next_pos[1] - self.player_pos[1]
+                if dr == -1: best_dir = "↑"
+                elif dr == 1: best_dir = "↓"
+                elif dc == -1: best_dir = "←"
+                elif dc == 1: best_dir = "→"
+        
+        return best_dir, best_target
+
+    def get_danger_zones(self) -> Set[Tuple[int, int]]:
+        """Returns set of cells adjacent to enemies (danger zones)."""
+        danger = set()
+        for r in range(self.config.grid_size):
+            for c in range(self.config.grid_size):
+                if self.grid[r, c] == TileType.ENEMY:
+                    danger.add((r, c))
+                    for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+                        nr, nc = r + dr, c + dc
+                        if 0 <= nr < self.config.grid_size and 0 <= nc < self.config.grid_size:
+                            if self.grid[nr, nc] not in (TileType.WALL, TileType.ENEMY):
+                                danger.add((nr, nc))
+        return danger
 
     def compute_optimal_path_length(self) -> int:
         """BFS-based: compute shortest path from player to exit, collecting needed keys."""

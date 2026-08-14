@@ -35,36 +35,64 @@ class FixedDDA:
 
 class HeuristicDDA:
     """
-    Rule-based DDA:
-      - If last level solved too fast (< t_min)  → increase complexity.
-      - If last level timed out / failed          → decrease complexity.
-      - Otherwise                                 → keep same.
+    Smart rule-based DDA that adjusts all difficulty axes:
+      - Grid size, keys, enemies, hints based on player performance.
+      - Tracks consecutive fails/wins to make proportional adjustments.
     """
     def __init__(self, config: dict):
         self.t_min = config.get('t_min', 50)
         self.t_max = config.get('t_max', 200)
         self.last_solved = None
         self.last_solve_time = None
+        self.last_deaths = 0
+        self.consecutive_fails = 0
+        self.consecutive_fast_solves = 0
+        self.action_history = []
 
-    def observe_result(self, solved: bool, solve_time: int):
+    def observe_result(self, solved: bool, solve_time: int, deaths: int = 0):
         self.last_solved = solved
         self.last_solve_time = solve_time
+        self.last_deaths = deaths
+        if not solved:
+            self.consecutive_fails += 1
+            self.consecutive_fast_solves = 0
+        elif solve_time < self.t_min:
+            self.consecutive_fast_solves += 1
+            self.consecutive_fails = 0
+        else:
+            self.consecutive_fails = 0
+            self.consecutive_fast_solves = 0
 
     def choose_action(self, obs) -> int:
         if self.last_solved is None:
             return DDAAction.KEEP_SAME
 
         if not self.last_solved:
-            # Too hard — decrease complexity
-            return DDAAction.DECREASE_SIZE
+            # Too hard — prioritize making it easier
+            if self.last_deaths > 0:
+                action = DDAAction.DECREASE_ENEMIES
+            elif self.consecutive_fails >= 2:
+                action = DDAAction.DECREASE_SIZE
+            else:
+                action = DDAAction.ADD_HINT
         elif self.last_solve_time < self.t_min:
-            # Too easy — increase complexity
-            return DDAAction.INCREASE_SIZE
+            # Too easy — increase difficulty on rotating axes
+            cycle = self.consecutive_fast_solves % 3
+            if cycle == 0:
+                action = DDAAction.INCREASE_KEYS
+            elif cycle == 1:
+                action = DDAAction.INCREASE_ENEMIES
+            else:
+                action = DDAAction.INCREASE_SIZE
         elif self.last_solve_time > self.t_max:
-            # Solved but slow — decrease a bit
-            return DDAAction.DECREASE_ENEMIES
+            # Solved but took too long — slight reduction
+            action = DDAAction.REMOVE_HINT if len(self.action_history) % 2 == 0 else DDAAction.DECREASE_KEYS
         else:
-            return DDAAction.KEEP_SAME
+            # In the flow window — keep same
+            action = DDAAction.KEEP_SAME
+
+        self.action_history.append(action)
+        return action
 
 
 class RLAgentDDA:
